@@ -1,4 +1,4 @@
-use crate::{app::App, util::center_widget};
+use crate::{app::App, config::CALC_HIST_SIZE, input_history::InputHistory, util::center_widget};
 
 use ratatui::{
     Frame,
@@ -8,67 +8,29 @@ use ratatui::{
 };
 
 use crate::editor::UIState;
-
 use ratatui::crossterm::event::{Event, KeyCode};
-use std::{collections::HashSet, io::Result};
-use tui_input::{Input, backend::crossterm::EventHandler};
-
+use std::io::Result;
+use tui_input::backend::crossterm::EventHandler;
 use evalexpr::*;
 
-#[derive(Default)]
 pub struct Calculator {
-    pub input: Input,
+    pub history: InputHistory,
     pub context: HashMapContext,
-    pub history: Vec<String>,
-    pub history_index: Option<usize>,
-    // history_set is a HashSet to avoid duplicates, although users
-    // can bypass that with something like "1+1" != "1 + 1"
-    pub history_set: HashSet<String>,
     pub result: i64,
 }
 
-impl Calculator {
-    pub fn push_history(&mut self, entry: String) {
-        if !entry.trim().is_empty() && self.history_set.insert(entry.clone()) {
-            self.history.push(entry);
+impl Default for Calculator {
+    fn default() -> Self {
+        Self {
+            history: InputHistory::set_max_size(CALC_HIST_SIZE),
+            context: HashMapContext::new(),
+            result: 0,
         }
-        self.history_index = None;
-    }
-    pub fn history_up(&mut self) {
-        if self.history.is_empty() {
-            return;
-        }
-
-        let len = self.history.len();
-
-        let new_index = match self.history_index {
-            None => len - 1,
-            Some(0) => 0,
-            Some(i) => i - 1,
-        };
-
-        self.history_index = Some(new_index);
-        self.input = Input::new(self.history[new_index].clone());
-    }
-    pub fn history_down(&mut self) {
-        if self.history.is_empty() {
-            return;
-        }
-
-        let len = self.history.len();
-
-        let new_index = match self.history_index {
-            None => 0,
-            Some(i) => (i + 1).min(len - 1),
-        };
-
-        self.history_index = Some(new_index);
-        self.input = Input::new(self.history[new_index].clone());
     }
 }
 
 pub fn dialog_calculator_draw(app: &mut App, frame: &mut Frame) {
-    let para = Paragraph::new(app.calculator.input.value());
+    let para = Paragraph::new(app.calculator.history.input.value());
 
     let dialog_area = center_widget(68, 8, frame.area());
 
@@ -81,7 +43,7 @@ pub fn dialog_calculator_draw(app: &mut App, frame: &mut Frame) {
 
     frame.render_widget(Clear, dialog_area);
     frame.render_widget(para.block(block), dialog_area);
-    let x = app.calculator.input.visual_cursor();
+    let x = app.calculator.history.input.visual_cursor();
     frame.set_cursor_position((dialog_area.x + 2 + x as u16, dialog_area.y + 1));
 
     let para_result = Paragraph::new(format!(
@@ -235,13 +197,13 @@ pub fn dialog_calculator_events(app: &mut App, event: &Event) -> Result<bool> {
                 app.state = UIState::Normal;
             }
             KeyCode::Enter => {
-                let input_expr = app.calculator.input.value().to_string();
+                let input_expr = app.calculator.history.input.value().to_string();
 
                 load_variables(app);
 
                 let result = eval_with_context_mut(&input_expr, &mut app.calculator.context);
 
-                app.calculator.push_history(input_expr);
+                app.calculator.history.push(input_expr);
 
                 match result {
                     Ok(v) => {
@@ -255,13 +217,13 @@ pub fn dialog_calculator_events(app: &mut App, event: &Event) -> Result<bool> {
                 }
             }
             KeyCode::Up => {
-                app.calculator.history_up();
+                app.calculator.history.up();
             }
             KeyCode::Down => {
-                app.calculator.history_down();
+                app.calculator.history.down();
             }
             _ => {
-                app.calculator.input.handle_event(event);
+                app.calculator.history.input.handle_event(event);
             }
         }
     }

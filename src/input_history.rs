@@ -2,23 +2,44 @@ use std::collections::VecDeque; // VecDeque seems better
 use tui_input::Input;
 use crate::config::CMD_INPUT_HIST_SIZE;
 
-#[derive(Default)]
+
 pub struct InputHistory {
     pub input: Input,
     pub history: VecDeque<String>,
     pub history_index: Option<usize>,
+    max_size: usize,
+}
+
+impl Default for InputHistory {
+    fn default() -> Self {
+        Self {
+            input: Input::default(),
+            history: VecDeque::new(),
+            history_index: None,
+            max_size: CMD_INPUT_HIST_SIZE,
+        }
+    }
 }
 
 impl InputHistory {
+	
+	pub fn set_max_size(max_size: usize) -> Self {
+        Self {
+            input: Input::default(),
+            history: VecDeque::new(),
+            history_index: None,
+            max_size,
+        }
+    }
+    
     pub fn push(&mut self, entry: String) {
         if entry.trim().is_empty() {
             return;
         }
-        // O(n) but n=50 max, avoids extra allocations?
         if self.history.contains(&entry) {
             return;
         }
-        if self.history.len() >= CMD_INPUT_HIST_SIZE {
+        if self.history.len() >= self.max_size {
             self.history.pop_front();
         }
         self.history.push_back(entry);

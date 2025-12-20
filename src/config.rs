@@ -9,6 +9,9 @@ pub const APP_PAGE_SIZE: usize = APP_CACHE_SIZE / 4;
 // command input history size
 pub const CMD_INPUT_HIST_SIZE: usize = 50;
 
+// calc hist size
+pub const CALC_HIST_SIZE: usize= 50;
+
 pub struct Config {
     pub database: bool,
     pub dim_control_chars: bool,
