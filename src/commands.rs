@@ -42,6 +42,7 @@ fn try_goto(app: &mut App, offset: &str) {
         }
         if ofs < app.file_info.size {
             app.dialog_renderer = None;
+            app.state = UIState::Normal;
             app.goto(ofs);
         } else {
             app.dialog_renderer = Some(command_error_invalid_offset_draw);
@@ -53,6 +54,7 @@ fn try_goto(app: &mut App, offset: &str) {
 
 pub fn parse_command(app: &mut App, cmdline: &str) {
     if cmdline.is_empty() {
+        app.state = UIState::Normal;
         app.dialog_renderer = None;
         return;
     }
@@ -197,7 +199,7 @@ pub fn command_events(app: &mut App, event: &Event) -> Result<bool> {
                 app.state = UIState::Normal;
             }
             KeyCode::Enter => {
-                let v = app.command_input.input.value_and_reset();                
+                let v = app.command_input.input.value_and_reset();
                 parse_command(app, &v);
                 app.command_input.push(v);
             }
