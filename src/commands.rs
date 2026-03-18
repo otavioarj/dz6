@@ -6,6 +6,7 @@ use ratatui::{
 
 use crate::{editor::UIState, widgets::Message};
 
+use crate::app::Dz6Error;
 use clap::{Parser, Subcommand};
 use ratatui::crossterm::event::{Event, KeyCode};
 use std::io::Result;
@@ -27,6 +28,10 @@ enum Command {
         option: String,
         value: Option<String>,
     },
+    Sel {
+        start: String,
+        length: String,
+    },
 }
 
 #[derive(Parser, Debug)]
@@ -34,21 +39,52 @@ struct CommandLine {
     #[clap(subcommand)]
     command: Option<Command>,
 }
+#[derive(Debug, PartialEq)]
+enum OffsetType {
+    Backward,
+    Absolute,
+    Forward,
+}
 
 fn try_goto(app: &mut App, offset: &str) {
-    if let Ok(mut ofs) = parse_offset(offset) {
-        if offset.starts_with('+') {
-            ofs += app.hex_view.offset;
+    let offset_direction;
+    let mut new_offset = offset;
+
+    if offset.starts_with('-') {
+        offset_direction = OffsetType::Backward;
+        new_offset = &offset[1..];
+    } else if offset.starts_with('+') {
+        offset_direction = OffsetType::Forward;
+        new_offset = &offset[1..];
+    } else {
+        offset_direction = OffsetType::Absolute;
+    }
+
+    if let Ok(mut ofs) = parse_offset(&new_offset) {
+        if offset_direction == OffsetType::Forward {
+            ofs = app.hex_view.offset.saturating_add(ofs);
+        } else if offset_direction == OffsetType::Backward {
+            ofs = app.hex_view.offset.saturating_sub(ofs);
         }
         if ofs < app.file_info.size {
             app.dialog_renderer = None;
             app.state = UIState::Normal;
             app.goto(ofs);
         } else {
-            app.dialog_renderer = Some(command_error_invalid_offset_draw);
+            app.last_error = Dz6Error {
+                message: format!(
+                    "Invalid range: {}; maximum offset for this file is {}",
+                    offset,
+                    app.file_info.size.saturating_sub(1)
+                ),
+            };
+            app.dialog_renderer = Some(command_error_draw);
         }
     } else {
-        app.dialog_renderer = Some(command_error_invalid_draw);
+        app.last_error = Dz6Error {
+            message: format!("Not an editor command: {}", offset),
+        };
+        app.dialog_renderer = Some(command_error_draw);
     }
 }
 
@@ -78,6 +114,7 @@ pub fn parse_command(app: &mut App, cmdline: &str) {
                     let _ = app.save_database();
                 }
                 app.dialog_renderer = None;
+                app.state = UIState::Normal;
             }
             // write and quit
             Some(Command::Wq) | Some(Command::X) => {
@@ -98,76 +135,133 @@ pub fn parse_command(app: &mut App, cmdline: &str) {
                         Commands::comment(app, ofs, comment);
                         app.dialog_renderer = None;
                     } else {
-                        app.dialog_renderer = Some(command_error_invalid_offset_draw);
+                        app.last_error = Dz6Error {
+                            message: format!(
+                                "Invalid range: {}; maximum offset for this file is {}",
+                                cmdline,
+                                app.file_info.size.saturating_sub(1)
+                            ),
+                        };
+                        app.dialog_renderer = Some(command_error_draw);
                     }
                 } else {
-                    app.dialog_renderer = Some(command_error_invalid_draw);
+                    app.last_error = Dz6Error {
+                        message: format!("Invalid argument: {}", offset),
+                    };
+                    app.dialog_renderer = Some(command_error_draw);
                 }
                 app.state = UIState::Normal;
             }
             // set
-            Some(Command::Set { option, value }) => match option.as_str() {
-                // bytes per line
-                "byteline" => {
-                    if let Some(val) = value
-                        && let Ok(bpl) = val.parse::<usize>()
-                    {
-                        if bpl > 0 {
-                            app.config.hex_mode_bytes_per_line = bpl.min(48);
+            Some(Command::Set { option, value }) => {
+                match option.as_str() {
+                    // bytes per line
+                    "byteline" => {
+                        if let Some(val) = value {
+                            if let Ok(bpl) = val.parse::<usize>() {
+                                // Bound user typed value by `max` - 1
+                                if app.screen.width > 0 {
+                                    let max = ((app.screen.width - 9) / 4) as usize;
+                                    app.config.hex_mode_bytes_per_line = bpl.min(max - 1);
+                                } else {
+                                    app.config.hex_mode_bytes_per_line = bpl.min(64);
+                                }
+                                app.config.hex_mode_bytes_per_line_auto = false;
+                            } else if let Ok(bpl) = val.parse::<String>()
+                                && bpl == "auto"
+                            {
+                                app.config.hex_mode_bytes_per_line_auto = true;
+                                if app.screen.width > 0 {
+                                    let max = ((app.screen.width - 9) / 4) as usize;
+                                    app.config.hex_mode_bytes_per_line = max - 1;
+                                }
+                            }
+                        }
+                        app.dialog_renderer = None;
+                    }
+                    // control / non-graphic bytes
+                    "ctrlchar" => {
+                        if let Some(val) = value
+                            && val.len() == 1
+                        {
+                            let c = val.chars().next().unwrap_or('.');
+                            app.config.hex_mode_non_graphic_char = c;
+                        }
+                        app.dialog_renderer = None;
+                    }
+                    // save database files <filename>.dz6
+                    "db" => {
+                        app.config.database = true;
+                        app.dialog_renderer = None;
+                    }
+                    "nodb" => {
+                        app.config.database = false;
+                        app.dialog_renderer = None;
+                    }
+                    // dim (gray out) control bytes
+                    "dimctrl" => {
+                        app.config.dim_control_chars = true;
+                        app.dialog_renderer = None;
+                    }
+                    // dim null bytes only
+                    "dimzero" => {
+                        app.config.dim_control_chars = false;
+                        app.config.dim_zeroes = true;
+                        app.dialog_renderer = None;
+                    }
+                    "nodim" => {
+                        app.config.dim_control_chars = false;
+                        app.config.dim_zeroes = false;
+                        app.dialog_renderer = None;
+                    }
+                    // theme
+                    "theme" => {
+                        if let Some(val) = value {
+                            match val.as_str() {
+                                "dark" => {
+                                    app.config.theme = crate::themes::DARK;
+                                    app.dialog_renderer = None;
+                                }
+                                "light" => {
+                                    app.config.theme = crate::themes::LIGHT;
+                                    app.dialog_renderer = None;
+                                }
+                                _ => {
+                                    app.last_error = Dz6Error {
+                                        message: format!("Invalid theme: {}", val),
+                                    };
+                                    app.dialog_renderer = Some(command_error_draw);
+                                }
+                            }
                         }
                     }
-                    app.dialog_renderer = None;
-                }
-                // control / non-graphic bytes
-                "ctrlchar" => {
-                    if let Some(val) = value
-                        && val.len() == 1
-                    {
-                        let c = val.chars().next().unwrap_or('.');
-                        app.config.hex_mode_non_graphic_char = c;
+                    // saarch wrap
+                    "wrapscan" => {
+                        app.config.search_wrap = true;
+                        app.dialog_renderer = None;
                     }
-                    app.dialog_renderer = None;
-                }
-                // save database files <filename>.dz6
-                "db" => {
-                    app.config.database = true;
-                    app.dialog_renderer = None;
-                }
-                "nodb" => {
-                    app.config.database = false;
-                    app.dialog_renderer = None;
-                }
-                // dim (gray out) control bytes
-                "dimctrl" => {
-                    app.config.dim_control_chars = true;
-                    app.dialog_renderer = None;
-                }
-                // dim null bytes only
-                "dimzero" => {
-                    app.config.dim_control_chars = false;
-                    app.config.dim_zeroes = true;
-                    app.dialog_renderer = None;
-                }
-                "nodim" => {
-                    app.config.dim_control_chars = false;
-                    app.config.dim_zeroes = false;
-                    app.dialog_renderer = None;
-                }
-                // theme
-                "theme" => {
-                    if let Some(val) = value {
-                        match val.as_str() {
-                            "dark" => app.config.theme = crate::themes::DARK,
-                            "light" => app.config.theme = crate::themes::LIGHT,
-                            _ => (),
-                        }
+                    "nowrapscan" => {
+                        app.config.search_wrap = false;
+                        app.dialog_renderer = None;
                     }
-                    app.dialog_renderer = None;
+                    _ => {
+                        app.dialog_renderer = None;
+                    }
                 }
-                _ => {
-                    app.dialog_renderer = None;
+                app.state = UIState::Normal;
+            }
+            Some(Command::Sel { start, length }) => {
+                app.state = UIState::HexSelection;
+                app.dialog_renderer = None;
+
+                if let Ok(st) = parse_offset(&start)
+                    && let Ok(len) = parse_offset(&length)
+                {
+                    app.hex_view.selection.start = st;
+                    app.hex_view.selection.end = st.saturating_add(len);
+                    app.goto(st);
                 }
-            },
+            }
             None => {
                 try_goto(app, cmdline);
             }
@@ -177,7 +271,6 @@ pub fn parse_command(app: &mut App, cmdline: &str) {
             try_goto(app, cmdline);
         }
     }
-    app.state = UIState::Normal;
 }
 
 // command bar
@@ -217,17 +310,9 @@ pub fn command_events(app: &mut App, event: &Event) -> Result<bool> {
     Ok(false)
 }
 
-pub fn command_error_invalid_offset_draw(app: &mut App, frame: &mut Frame) {
-    let mut dialog = Message::from(&format!(
-        "Invalid offset. Maximum offset for this file: {:X}",
-        app.file_info.size - 1
-    ));
+pub fn command_error_draw(app: &mut App, frame: &mut Frame) {
+    let mut dialog = Message::from(&app.last_error.message);
     dialog.kind = MessageType::Error;
     dialog.render(app, frame);
-}
-
-pub fn command_error_invalid_draw(app: &mut App, frame: &mut Frame) {
-    let mut dialog = Message::from("Invalid command");
-    dialog.kind = MessageType::Error;
-    dialog.render(app, frame);
+    app.state = UIState::Error;
 }

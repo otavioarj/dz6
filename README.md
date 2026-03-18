@@ -2,13 +2,13 @@
 
 # dz6
 
-A vim-inspired, TUI-based hexadecimal editor
+Fast Vim-inspired TUI hex editor
 
 ## Features
 
 - Fast, even when editing large files
 - Runs in the terminal / Text User Interface (TUI)
-- vim-like key bindings
+- Vim-like key bindings
 - Configurable options
 - Edit in hex or ASCII
 - String list with regex filtering
@@ -17,21 +17,28 @@ A vim-inspired, TUI-based hexadecimal editor
 - Cross-platform
 - Open source
 
-## Screenshot
+## Demo
 
-![Initial window](assets/dz_ss_initial.png)
+[![asciicast](https://asciinema.org/a/801539.svg)](https://asciinema.org/a/801539)
 
-## Download
+## Installation
 
-You can install **dz6** with the Rust package manager. Follow the instructions [here](https://rust-lang.org/tools/install/) to install **cargo**. Then, use
+### Rust package manager (all operating systems)
+
+Follow the instructions [here](https://rust-lang.org/tools/install/) to install **cargo**. Then, open up
+a terminal and type:
 
     cargo install dz6
-
-## Package managers
 
 ### FreeBSD
 
     pkg install dz6
+
+### Windows
+
+If you have [WinGet](https://learn.microsoft.com/en-us/windows/package-manager/), install dz6 with:
+
+    winget install mentebinaria.dz6
 
 Alternatively, download the [release](https://github.com/mentebinaria/dz6/releases) package for your system.
 
@@ -62,21 +69,24 @@ Once you load a file in **dz6**, you can use the commands below.
 
 #### Commands
 
-| Command        | Action                                                           | Parameters             | Tips/Examples                                                                                     |
-| -------------- | ---------------------------------------------------------------- | ---------------------- | ------------------------------------------------------------------------------------------------- |
-| `<number`      | Go to offset                                                     |                        | hex default; `t` suffix = decimal; `+` prefix = incremental jump                                  |
-| `cmt`          | Comment                                                          | `<offset>` `<comment>` | `cmt 1000 "my comment"` (offset obeys the same rules above)                                       |
-| `set byteline` | Set the number of bytes per line                                 | `<number>`             | `set byteline 8` (default is 16; range from 1 to 48)                                              |
-| `set ctrlchar` | Set the character shown in the ASCII dump for non-graphic values | `<char>`               | `set ctrlchar " "` would set a blankspace (default: `.`)                                          |
-| `set db`       | Turn on database file saving/loading (default)                   |                        | A database file with a `.dz6` extension will be used to store bookmarks and comments for the file |
-| `set nodb`     | Turn off database file saving/loading                            |                        |                                                                                                   |
-| `set dimzero`  | Dim (gray out) null bytes only (default)                         |                        |                                                                                                   |
-| `set dimctrl`  | Dim all control characters                                       |                        | all non-graphic characters will be dimmed                                                         |
-| `set nodim`    | Turn off byte dimming                                            |                        |                                                                                                   |
-| `set theme`    | Set the theme                                                    | `dark` or `light`      | `set theme light` (default: `dark`)                                                               |
-| `w`            | Write changes to file                                            |                        |                                                                                                   |
-| `wq` or `x`    | Write changes to file and quit                                   |                        |                                                                                                   |
-| `q`            | Quit without saving changes                                      |                        | In replace mode, `T` (truncate) is an exception because it modifies the file immediately.         |
+| Command          | Action                                                           | Parameters             | Tips/Examples                                                                                     |
+| ---------------- | ---------------------------------------------------------------- | ---------------------- | ------------------------------------------------------------------------------------------------- |
+| `<number>`       | Go to offset                                                     |                        | hex default; `t` suffix = decimal; `+` prefix = incremental jump; `-` prefix = decremental jump   |
+| `cmt`            | Add `<comment>` to `<offset>`                                    | `<offset>` `<comment>` | `cmt 1000 "my comment"` (comment at offset 0x1000; offset obeys the same rules above)             |
+| `sel`            | Select `<length>` bytes from `<offset>`                          | `<offset>` `<length>`  | `sel 40 10t` (select 10 bytes from offset 0x40)                                                   |
+| `set byteline`   | Set the number of bytes per line                                 | `<number> or `auto`    | `set byteline 8` (default is 16; `auto` enables automatic setting based on screen width)          |
+| `set ctrlchar`   | Set the character shown in the ASCII dump for non-graphic values | `<char>`               | `set ctrlchar " "` would set a blankspace (default: `.`)                                          |
+| `set db`         | Turn on database file saving/loading (default)                   |                        | A database file with a `.dz6` extension will be used to store bookmarks and comments for the file |
+| `set nodb`       | Turn off database file saving/loading                            |                        |                                                                                                   |
+| `set dimzero`    | Dim (gray out) null bytes only (default)                         |                        |                                                                                                   |
+| `set dimctrl`    | Dim all control characters                                       |                        | All non-graphic characters will be dimmed                                                         |
+| `set nodim`      | Turn off byte dimming                                            |                        |                                                                                                   |
+| `set theme`      | Set the theme                                                    | `dark` or `light`      | `set theme light` (default: `dark`)                                                               |
+| `set wrapscan`   | Enable search results wrap                                       |                        |                                                                                                   |
+| `set nowrapscan` | Disable search results wrap                                      |                        |                                                                                                   |
+| `w`              | Write changes to file                                            |                        |                                                                                                   |
+| `wq` or `x`      | Write changes to file and quit                                   |                        |                                                                                                   |
+| `q`              | Quit without saving changes                                      |                        | In replace mode, `T` (truncate) is an exception because it modifies the file immediately.         |
 
 If you need permanent settings, create a `$HOME/.dz6init` file containing any of the commands above, one per line. dz6 will load that at startup.
 
@@ -84,22 +94,25 @@ If you need permanent settings, create a `$HOME/.dz6init` file containing any of
 
 | Key                     | Action                                                                             | Tips                                                              |
 | ----------------------- | ---------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
-| Arrow keys              | Navigation                                                                         | vim-like `h`, `j`, `k`, `l` also work                             |
+| Arrow keys              | Navigation                                                                         | Vim-like `h`, `j`, `k`, `l` also work                             |
 | `w` `d` `q`             | Advance by a word (2 bytes), a dword (4 bytes), or a qword (8 bytes), respectively | Use the capital letters `W`, `D`, and `Q` to move backwards       |
 | `o`                     | Go to the next other byte (the one that differs from the byte under the cursor)    | `O` goes backwards                                                |
 | `Home` or `0`           | Set the cursor to the beginning of the current line                                |                                                                   |
 | `End` or `$`            | Set the cursor to the end of the current line                                      |                                                                   |
 | `Ctrl+Home` or `G`      | Go to the first offset                                                             |                                                                   |
 | `Ctrl+End` or `Shift+G` | Go to the last offset in the file                                                  |                                                                   |
-| `Page Down`             | Move down one page                                                                 | A page has 1KB by default                                         |
+| `Page Down`             | Move down one page                                                                 |                                                                   |
 | `Page Up`               | Move up one page                                                                   |                                                                   |
 | `r`                     | Enter [replace mode](#hex-replace-mode)                                            |                                                                   |
 | `z`                     | Enter replace mode and set the byte under the cursor zero                          |                                                                   |
 | `Ctrl+a`                | Enter replace mode and increment byte under the cursor                             |                                                                   |
 | `Ctrl+x`                | Enter replace mode and decrement byte under the cursor                             |                                                                   |
-| `v`                     | Enter [selection mode](#hex-selection-mode)                                        |                                                                   |
-| `/`                     | Search                                                                             | Search the entire file. `Tab` cycles between ASCII and hex search |
-| `n`                     | Search next                                                                        |                                                                   |
+| `v`                     | Enter [select mode](#hex-selection-mode)                                           |                                                                   |
+| `u`                     | Undo the last change made to the buffer                                            | Use it _before_ writing to the file (`:w`)                        |
+| `/`                     | Search (forward)                                                                   | Search the entire file. `Tab` cycles between ASCII and hex search |
+| `n`                     | Search next (forward)                                                              |                                                                   |
+| `?`                     | Search (backward)                                                                  | Search the entire file. `Tab` cycles between ASCII and hex search |
+| `N`                     | Search next (backward)                                                             |                                                                   |
 | `s`                     | Open [Strings](#strings) window                                                    |                                                                   |
 | `Backspace`             | Go to the previously visited offset                                                | This is useful after a Go to command, for example                 |
 | `+`                     | Add current offset to bookmarks                                                    |                                                                   |
@@ -110,13 +123,13 @@ If you need permanent settings, create a `$HOME/.dz6init` file containing any of
 | `Alt+h`                 | Toggle byte highlight                                                              |                                                                   |
 | `;`                     | Add a comment to the selected offset                                               |                                                                   |
 | `Ant+n`                 | Open [Names](#names) window. Added comments will be there.                         |                                                                   |
-| `?`                     | Open [Calculator](#calculator)                                                     |                                                                   |
+| `=`                     | Open [Calculator](#calculator)                                                     |                                                                   |
 
 #### Hex selection mode
 
 | Key        | Action                           | Tips                                                                             |
 | ---------- | -------------------------------- | -------------------------------------------------------------------------------- |
-| Arrow keys | Navigation (left and right only) | vim-like `h`, `l` also work                                                      |
+| Arrow keys | Navigation                       | Vim-like `h`, `j`, `k`, `l` also work                                            |
 | `n`        | Fill selected bytes with NOPs    | This puts dz6 in replace mode; press `Enter` to save the buffer; `Esc` to cancel |
 | `z`        | Fill selected bytes with zeroes  | Same as above                                                                    |
 | `y`        | Copy bytes to system's clipboard | There is no paste command yet                                                    |
@@ -124,17 +137,16 @@ If you need permanent settings, create a `$HOME/.dz6init` file containing any of
 
 #### Hex replace mode
 
-| Key         | Action                                                     | Tips                          |
-| ----------- | ---------------------------------------------------------- | ----------------------------- |
-| Arrow keys  | Navigation                                                 |                               |
-| `Backspace` | The same as navigating left                                |                               |
-| `z`         | Set the byte to zero                                       |                               |
-| `Ctrl+a`    | Increment byte                                             |                               |
-| `Ctrl+x`    | Decrement byte                                             |                               |
-| `Enter`     | Save changes to file                                       |                               |
-| `Esc`       | Cancel changes                                             |                               |
-| `Tab`       | Cycle through hex and ASCII dump to edit the file in ASCII |                               |
-| `T`         | Truncate the file at the selected offset                   | Be aware this can't be undone |
+| Key         | Action                                                     | Tips                                                     |
+| ----------- | ---------------------------------------------------------- | -------------------------------------------------------- |
+| Arrow keys  | Navigation                                                 |                                                          |
+| `Backspace` | The same as navigating left                                |                                                          |
+| `z`         | Set byte to zero                                           |                                                          |
+| `Ctrl+a`    | Increment byte                                             |                                                          |
+| `Ctrl+x`    | Decrement byte                                             |                                                          |
+| `Esc`       | Go back to normal mode                                     | Changes are saved to buffer, but not written to file yet |
+| `Tab`       | Cycle through hex and ASCII dump to edit the file in ASCII |                                                          |
+| `T`         | Truncate the file at the selected offset                   | Be aware this can't be undone                            |
 
 #### Names
 
@@ -195,14 +207,10 @@ Use the up and down arrow keys to navigate through the history.
 
 iTerm2 users: go to `Settings → Profiles → (your profile) → Keys` and set the `Left Option key` to `Esc+`. This will make the `Option` key work like `Alt`.
 
-**2. Do all vim commands work in dz6?**
+**2. Do all Vim commands work in dz6?**
 
-No. Some key bindings behave similarly, but dz6 is not meant to be 100% compatible with vim. For example, `o` in dz6 moves to the next other byte, while the same key in vim opens a new line below the current one.
+No. Some key bindings behave similarly, but dz6 is not meant to be 100% compatible with Vim. For example, `o` in dz6 moves to the next other byte, while the same key in Vim opens a new line below the current one.
 
 **3. Is dz6 stable yet?**
 
 No. Stability is expected only at v1.0.0. Until then, breaking changes are expected.
-
-## Motivation
-
-After changing jobs and returning to Linux, I wanted something similar to [Hiew](https://hiew.io) that I could run on my machine. Since I like vim, I tried to combine features from both editors in dz6. VSCode, IDA, x64dbg, GDB, and [Hex-Patch](https://etto48.github.io/HexPatch/) also served as inspiration. Hats off to the authors of these great tools!

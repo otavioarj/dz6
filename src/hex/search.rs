@@ -1,5 +1,5 @@
 use crate::widgets::{Message, MessageType};
-use crate::{app::App, config::APP_CACHE_SIZE, editor::UIState};
+use crate::{app::App, editor::UIState};
 use ratatui::Frame;
 use ratatui::crossterm::event::{Event, KeyCode};
 use ratatui::widgets::Paragraph;
@@ -11,6 +11,7 @@ use tui_input::backend::crossterm::EventHandler;
 pub struct Search {
     pub input_text: Input,
     pub mode: SearchMode,
+    pub direction: SearchDirection,
     pub input_hex: Input,
 }
 
@@ -33,6 +34,13 @@ impl SearchMode {
     }
 }
 
+#[derive(Default, PartialEq, Debug)]
+pub enum SearchDirection {
+    #[default]
+    Forward,
+    Backward,
+}
+
 pub fn hex_string_to_u8(hex_string: &str) -> Option<Vec<u8>> {
     if hex_string.is_empty() || !hex_string.len().is_multiple_of(2) {
         return None;
@@ -43,19 +51,47 @@ pub fn hex_string_to_u8(hex_string: &str) -> Option<Vec<u8>> {
 
 pub fn search<T: AsRef<[u8]>>(app: &mut App, needle: T) -> Option<usize> {
     let text = needle.as_ref();
-    let siz = text.len();
-    let nblock = app.reader.cache_block_number;
-    for block in nblock..=app.reader.cache_blocks {
-        for (i, win) in app.buffer.windows(siz).enumerate() {
-            let ofs = i + app.reader.cache_block_number * APP_CACHE_SIZE;
-            if win == text && ofs > app.hex_view.offset {
-                return Some(ofs);
-            }
-        }
-        let _ = app.read_chunk_from_file(block);
+    let filesize = app.file_info.size;
+    let buffer = app.file_info.get_buffer();
+
+    if filesize == 0 || text.is_empty() {
+        return None;
     }
-    // restore previous block to buffer
-    let _ = app.read_chunk_from_file(nblock);
+
+    let ofs = if app.hex_view.search.direction == SearchDirection::Forward {
+        let start = app.hex_view.offset.checked_add(1)?;
+        if start < filesize {
+            memchr::memmem::find(buffer.get(start..)?, text).map(|pos| start + pos)
+        } else {
+            None
+        }
+    } else {
+        let end = app.hex_view.offset;
+        if end > 0 {
+            memchr::memmem::rfind(buffer.get(..end)?, text)
+        } else {
+            None
+        }
+    };
+
+    if ofs.is_some() {
+        return ofs;
+    }
+
+    // ofs is None, check wrap setting
+    if app.config.search_wrap {
+        let ofs = if app.hex_view.search.direction == SearchDirection::Forward {
+            memchr::memmem::find(buffer, text)
+        } else {
+            memchr::memmem::rfind(buffer, text)
+        };
+
+        if ofs.is_some() {
+            return ofs;
+        }
+    }
+
+    crate::beep!();
     None
 }
 
@@ -65,13 +101,27 @@ pub fn dialog_search_draw(app: &mut App, frame: &mut Frame) {
     let x;
     let para;
 
+    let prompt_char = if app.hex_view.search.direction == SearchDirection::Forward {
+        '/'
+    } else {
+        '?'
+    };
+
     match app.hex_view.search.mode {
         SearchMode::Utf8 => {
-            para = Paragraph::new(format!("/{}", app.hex_view.search.input_text.value()));
+            para = Paragraph::new(format!(
+                "{}{}",
+                prompt_char,
+                app.hex_view.search.input_text.value()
+            ));
             x = app.hex_view.search.input_text.visual_cursor();
         }
         SearchMode::Hex => {
-            para = Paragraph::new(format!("/{}", app.hex_view.search.input_hex.value()));
+            para = Paragraph::new(format!(
+                "{}{}",
+                prompt_char,
+                app.hex_view.search.input_hex.value()
+            ));
             x = app.hex_view.search.input_hex.visual_cursor();
         }
     };

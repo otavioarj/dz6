@@ -4,21 +4,30 @@ use ratatui::{
     widgets::{Cell, Clear, Row, Table},
 };
 
-use crate::{app::App, config::APP_PAGE_SIZE, editor::UIState};
+use crate::{app::App, editor::UIState};
 
 // Left column with offsets
 pub fn draw_hex_offsets(app: &mut App, frame: &mut Frame, area: Rect) {
     // Offset lines
-    let mut rows: Vec<Row> = Vec::with_capacity(APP_PAGE_SIZE / app.config.hex_mode_bytes_per_line);
+    let mut rows: Vec<Row> =
+        Vec::with_capacity(app.reader.page_current_size / app.config.hex_mode_bytes_per_line);
     let mut ofs = app.reader.page_start;
-    let num_offsets = app
-        .reader
-        .page_current_size
-        .div_ceil(app.config.hex_mode_bytes_per_line);
+    let height = frame.area().height as usize;
 
-    for _ in 0..num_offsets {
+    for _ in 0..height {
         rows.push(Row::new([format!("{ofs:08X}")]));
         ofs += app.config.hex_mode_bytes_per_line;
+
+        // Prevent further offsets to appear
+        // TODO: Fix bug if the window is resized
+        if ofs >= app.file_info.size {
+            break;
+        }
+    }
+
+    // Show filesize as last offset
+    if app.file_info.size > 0 {
+        rows.push(Row::new([format!("{:08X}", app.file_info.size)]));
     }
 
     app.hex_view
@@ -33,16 +42,17 @@ pub fn draw_hex_offsets(app: &mut App, frame: &mut Frame, area: Rect) {
 // Middle area with the actual hex dump
 // TODO: refactor this as I did for draw_hex_ascii()
 pub fn draw_hex_contents(app: &mut App, frame: &mut Frame, area: Rect) {
-    let mut rows: Vec<Row> = Vec::with_capacity(APP_PAGE_SIZE / app.config.hex_mode_bytes_per_line);
+    let mut rows: Vec<Row> =
+        Vec::with_capacity(app.reader.page_current_size / app.config.hex_mode_bytes_per_line);
     // A cell for each byte as they need different styles when edited
-    let mut byte_row: Vec<Cell> = Vec::with_capacity(APP_PAGE_SIZE);
+    let mut byte_row: Vec<Cell> = Vec::with_capacity(app.reader.page_current_size);
     let mut cell_hl_style = app.config.theme.highlight;
     let mut byte_style = app.config.theme.main;
 
-    for (i, byte) in app
-        .buffer
+    let buffer = app.file_info.get_buffer();
+    for (i, byte) in buffer
         .iter()
-        .skip(app.reader.offset_location_in_cache)
+        .skip(app.reader.page_start)
         .take(app.reader.page_current_size)
         .enumerate()
     {
@@ -74,7 +84,15 @@ pub fn draw_hex_contents(app: &mut App, frame: &mut Frame, area: Rect) {
         if app.hex_view.changed_bytes.contains_key(&offset) {
             // typed chars in content instead of original ones
             byte_content = app.hex_view.changed_bytes[&offset].clone();
-            byte_style = app.config.theme.changed_bytes;
+
+            if !app.hex_view.selection.contains(offset) {
+                byte_style = app.config.theme.changed_bytes;
+            }
+
+            // prepend a '0' while the user doesn't type the highest nibble
+            if byte_content.len() == 1 {
+                byte_content.insert(0, '0');
+            }
         }
 
         // TODO: column size (2) keep the separator char from being shown :(
@@ -149,10 +167,10 @@ pub fn draw_hex_ascii(app: &mut App, frame: &mut Frame, area: Rect) {
         app.config.theme.highlight
     };
 
-    for (i, byte) in app
-        .buffer
+    let buffer = app.file_info.get_buffer();
+    for (i, byte) in buffer
         .iter()
-        .skip(app.reader.offset_location_in_cache)
+        .skip(app.reader.page_start)
         .take(app.reader.page_current_size)
         .enumerate()
     {
@@ -168,20 +186,33 @@ pub fn draw_hex_ascii(app: &mut App, frame: &mut Frame, area: Rect) {
         // o offset atual está no hashmap de bytes alterados
         let offset = i + app.reader.page_start;
         let cell = if app.hex_view.changed_bytes.contains_key(&offset) {
-            // Define o estilo
-            char_style = app.config.theme.changed_bytes;
+            // Set regular highlight style if selection is happening
+            char_style = if app.hex_view.selection.contains(offset) {
+                app.config.theme.highlight
+            } else {
+                app.config.theme.changed_bytes
+            };
             // Recupera o byte alterado (como hex string)
             let s = &app.hex_view.changed_bytes[&offset];
 
             // Converte para um u8 numérico. Se não rolar, é porque deu uma
             // merda muito grande pois só deveria ter hex strings no hashmap.
             let num = u8::from_str_radix(s, 16).unwrap();
-            let c = num as char;
+            // If changed byte is not printable use the non graphic char instead
+            let c = if (num as char).is_ascii_graphic() {
+                num as char
+            } else {
+                app.config.hex_mode_non_graphic_char
+            };
             // Agora cria uma string a partir do char `c`
             // Parece doido, mas isso faz "41" -> 0x41 -> "A"
             let s = String::from(c);
             // Por fim, retorna a célula
-            Cell::new(s.clone()).style(char_style)
+            Cell::new(s).style(char_style)
+        } else if app.state == UIState::HexSelection && app.hex_view.selection.contains(offset) {
+            char_style = app.config.theme.highlight;
+            let s = String::from(c);
+            Cell::new(s).style(char_style)
         } else {
             // Se não for um byte alterado, usa o estilo padrão do tema
             char_style = app.config.theme.main;

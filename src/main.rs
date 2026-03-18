@@ -58,11 +58,39 @@ fn main() {
 
     while app.running {
         terminal
-            .draw(|f| draw::draw(f, &mut app))
+            .draw(|f| {
+                // Page size is dynamically calculated as:
+                // frame height - (command line + status line + header) * bytes per line
+
+                let page_size;
+
+                // Prevent panic on underflow with small screen sizes
+                // Currently, we can't have them because of widgets such as Calculator,
+                // but we might add support for such small screen sizes in the future
+                if f.area().height.checked_sub(3).is_some() {
+                    page_size = (f.area().height - 3) as usize * app.config.hex_mode_bytes_per_line;
+                } else {
+                    page_size = app.config.hex_mode_bytes_per_line;
+                }
+
+                if page_size != app.reader.page_current_size {
+                    app.reader.page_current_size = page_size;
+                    app.reader.page_end = app.reader.page_start + page_size.wrapping_sub(1);
+                }
+                app.screen = f.area();
+                draw::draw(f, &mut app)
+            })
             .expect("failed to draw frame");
 
         events::handle_events(&mut app).expect("unable to read events");
     }
 
     ratatui::restore();
+}
+
+#[macro_export]
+macro_rules! beep {
+    () => {
+        print!("\x07")
+    };
 }

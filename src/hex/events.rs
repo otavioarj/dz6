@@ -1,5 +1,6 @@
-use crate::{app::App, commands::Commands, config::APP_PAGE_SIZE, editor::UIState, hex};
+use crate::{app::App, commands::Commands, editor::UIState, hex};
 
+use crate::hex::search::SearchDirection;
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use std::io::Result;
 
@@ -18,18 +19,38 @@ pub fn hex_mode_events(app: &mut App, key: KeyEvent) -> Result<bool> {
                 break;
             }
             ofs = ofs.saturating_add_signed(delta);
-            // this is needed because it can start at 0
-            // but it cannot be zero afterwards
+            // this is needed because it can start at 0,
+            // but it cannot be zero afterward
             // without it, `O` doesn't work at offset 0
             if ofs == 0 {
                 app.goto(0);
                 break;
             }
-            app.read_chunk_for_offset(ofs);
         }
+    }
 
-        // restore original chunk
-        app.read_chunk_for_offset(app.hex_view.offset);
+    fn search_next(app: &mut App) {
+        let mut ofs = None;
+
+        if app.state == UIState::Normal {
+            if app.hex_view.search.mode == hex::search::SearchMode::Utf8
+                && !app.hex_view.search.input_text.value().is_empty()
+            {
+                ofs = hex::search::search(app, app.hex_view.search.input_text.value().to_string())
+            } else if app.hex_view.search.mode == hex::search::SearchMode::Hex
+                && !app.hex_view.search.input_hex.value().is_empty()
+            {
+                let hex_string = app.hex_view.search.input_hex.value().to_string();
+
+                if let Some(by) = hex::search::hex_string_to_u8(&hex_string) {
+                    ofs = hex::search::search(app, &by)
+                }
+            }
+
+            if let Some(ofs) = ofs {
+                app.goto(ofs);
+            }
+        }
     }
 
     // it is important to call goto as it looks for the offset in the
@@ -101,12 +122,12 @@ pub fn hex_mode_events(app: &mut App, key: KeyEvent) -> Result<bool> {
         }
         // go down one page
         KeyCode::PageDown => {
-            app.goto(app.hex_view.offset + APP_PAGE_SIZE);
+            app.goto(app.hex_view.offset + app.reader.page_current_size);
         }
         // go up one page
         KeyCode::PageUp => {
-            if app.hex_view.offset > APP_PAGE_SIZE {
-                app.goto(app.hex_view.offset - APP_PAGE_SIZE);
+            if app.hex_view.offset > app.reader.page_current_size {
+                app.goto(app.hex_view.offset - app.reader.page_current_size);
             } else {
                 app.goto(0);
             }
@@ -176,7 +197,6 @@ pub fn hex_mode_events(app: &mut App, key: KeyEvent) -> Result<bool> {
         KeyCode::Char('z') => {
             if !app.file_info.is_read_only && app.hex_view.offset < app.file_info.size {
                 app.state = UIState::HexEditing;
-                app.hex_view.changed_bytes.clear();
                 hex::edit::fill_with(app, 0x00, true);
             }
         }
@@ -188,7 +208,6 @@ pub fn hex_mode_events(app: &mut App, key: KeyEvent) -> Result<bool> {
                 && key.modifiers.contains(KeyModifiers::CONTROL)
             {
                 app.state = UIState::HexEditing;
-                app.hex_view.changed_bytes.clear();
                 let ofs = app.hex_view.offset;
                 if let Some(s) = app.hex_view.changed_bytes.get(&ofs) {
                     if let Ok(b) = u8::from_str_radix(s, 16) {
@@ -207,7 +226,6 @@ pub fn hex_mode_events(app: &mut App, key: KeyEvent) -> Result<bool> {
                 && key.modifiers.contains(KeyModifiers::CONTROL)
             {
                 app.state = UIState::HexEditing;
-                app.hex_view.changed_bytes.clear();
                 let ofs = app.hex_view.offset;
                 if let Some(s) = app.hex_view.changed_bytes.get(&ofs) {
                     if let Ok(b) = u8::from_str_radix(s, 16) {
@@ -224,10 +242,10 @@ pub fn hex_mode_events(app: &mut App, key: KeyEvent) -> Result<bool> {
             app.state = UIState::DialogHelp;
             app.dialog_renderer = Some(hex::help::dialog_help_draw);
         }
-        // reaplce
+        // replace
         KeyCode::Char('r') => {
             if app.file_info.is_read_only {
-                print!("\x07"); // beep
+                crate::beep!();
             } else if app.hex_view.offset < app.file_info.size {
                 app.state = UIState::HexEditing;
             }
@@ -239,9 +257,16 @@ pub fn hex_mode_events(app: &mut App, key: KeyEvent) -> Result<bool> {
         // search
         KeyCode::Char('/') => {
             app.state = UIState::DialogSearch;
+            app.hex_view.search.direction = SearchDirection::Forward;
             app.dialog_renderer = Some(hex::search::dialog_search_draw);
         }
-        // names and search next
+        // search backwards
+        KeyCode::Char('?') => {
+            app.state = UIState::DialogSearch;
+            app.hex_view.search.direction = SearchDirection::Backward;
+            app.dialog_renderer = Some(hex::search::dialog_search_draw);
+        }
+        // names and search next (forward)
         KeyCode::Char('n') => {
             // names
             if key.modifiers.contains(KeyModifiers::ALT) {
@@ -251,31 +276,15 @@ pub fn hex_mode_events(app: &mut App, key: KeyEvent) -> Result<bool> {
                     app.hex_view.names_list_state.select_first();
                 }
             } else {
-                // search next
-                let mut ofs = None;
-                if app.state == UIState::Normal {
-                    if app.hex_view.search.mode == hex::search::SearchMode::Utf8
-                        && !app.hex_view.search.input_text.value().is_empty()
-                    {
-                        ofs = crate::hex::search::search(
-                            app,
-                            &app.hex_view.search.input_text.value().to_string(),
-                        )
-                    } else if app.hex_view.search.mode == hex::search::SearchMode::Hex
-                        && !app.hex_view.search.input_hex.value().is_empty()
-                    {
-                        let hex_string = app.hex_view.search.input_hex.value().to_string();
-
-                        if let Some(by) = hex::search::hex_string_to_u8(&hex_string) {
-                            ofs = crate::hex::search::search(app, &by)
-                        }
-                    }
-
-                    if let Some(ofs) = ofs {
-                        app.goto(ofs);
-                    }
-                }
+                // search next (forward)
+                app.hex_view.search.direction = SearchDirection::Forward;
+                search_next(app);
             }
+        }
+        // search next (backward)
+        KeyCode::Char('N') => {
+            app.hex_view.search.direction = SearchDirection::Backward;
+            search_next(app);
         }
         // comment
         KeyCode::Char(';') => {
@@ -290,6 +299,14 @@ pub fn hex_mode_events(app: &mut App, key: KeyEvent) -> Result<bool> {
                 app.state = UIState::HexSelection;
                 app.hex_view.selection.start = app.hex_view.offset;
                 app.hex_view.selection.end = app.hex_view.offset;
+            }
+        }
+        // undo
+        KeyCode::Char('u') => {
+            if let Some(ofs) = app.hex_view.changed_history.pop() {
+                let _ = app.hex_view.changed_bytes.remove(&ofs);
+            } else {
+                crate::beep!(); // beep if there's nothing to undo
             }
         }
         _ => {}
